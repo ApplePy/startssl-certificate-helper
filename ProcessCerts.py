@@ -66,10 +66,10 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Sets up generating SSL keys, CSRs, and "
                                                  "retrieving signed certificates from StartSSL for easy installation.",
                                      epilog="")
-    parser.add_argument("--install", metavar="PATH",
-                        help="Install the chained certificate and key to the specified location.")
-    parser.add_argument("--format", choices=['PEM', 'DER', 'TEXT'], default='PEM',
-                        help="Specify the format to use during installation ('PEM' is the default).")
+    # parser.add_argument("--install", metavar="PATH",
+    #                    help="Install the chained certificate and key to the specified location.")
+    # parser.add_argument("--format", choices=['PEM', 'DER', 'TEXT'], default='PEM',
+    #                    help="Specify the format to use during installation ('PEM' is the default).")
     parser.add_argument("--config", metavar="PATH",
                         help="Specifies the path to the configuration file.")
     parser.add_argument("--encrypt-key", dest="encryptKey", action='store_true',
