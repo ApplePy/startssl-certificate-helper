@@ -14,7 +14,7 @@ from CertSecurity import CertSecurityGlobals
 # Constants
 class ProcessCertsGlobals:
     CURRENT_DIR = os.getcwd()
-    INSUFFICIENT_PY_VERSION_MSG = 'Sorry, Python < 3.5 is not supported.'
+    INSUFFICIENT_PY_VERSION_MSG = 'Sorry, this version of Python is not supported.'
     DEFAULT_CONFIG_FILE = os.path.join(CURRENT_DIR, "domains.json")
 
 
@@ -47,6 +47,17 @@ def get_domain():
 # --------- SETUP FUNCTIONS --------- #
 
 
+def version_check(*args):
+    """Checks if this version of python is supported.
+
+    :param args: The minimum version numbers.
+    :return: None.
+    """
+    for i in range(0, len(args)):
+        if sys.version_info[i] < args[i]:
+            exit(ProcessCertsGlobals.INSUFFICIENT_PY_VERSION_MSG)
+
+
 def parse_args():
     """Parses the command-line arguments and returns them.
 
@@ -73,10 +84,7 @@ def main():
     CertSecurityGlobals.DEBUG_MODE = True
 
     # Version check
-    if sys.version_info[0] < 3:
-        exit(ProcessCertsGlobals.INSUFFICIENT_PY_VERSION_MSG)
-    elif sys.version_info[1] < 5:
-        exit(ProcessCertsGlobals.INSUFFICIENT_PY_VERSION_MSG)
+    version_check(3, 5)
 
     # Parse arguments
     args = parse_args()
@@ -100,15 +108,15 @@ def main():
         config_contents = json.load(file)
 
     # Make directory to hold keys and csr
+    ssl_dir = os.path.join(ProcessCertsGlobals.CURRENT_DIR, config_contents['domainName'] + ".ssl")
     try:
-        ssl_dir = os.path.join(ProcessCertsGlobals.CURRENT_DIR, config_contents['domainName'] + ".ssl")
         os.mkdir(ssl_dir)
-        CertSecurityGlobals.SSL_DIR = ssl_dir
-        del ssl_dir
     except FileExistsError as err:
         # TODO: Get intelligent about reusing certificates already obtained
         print("Error: " + ssl_dir + " already exists, exiting.", file=sys.stderr)
         exit(err.errno)
+    CertSecurityGlobals.SSL_DIR = ssl_dir
+    del ssl_dir
 
     # Generate keys
     key_pair = CertSecurity.generate_key(key_file=config_contents['domainName'] + ".key",
@@ -160,7 +168,7 @@ def main():
                                CertSecurity.get_password() if args.encryptKey else None)
 
     # Create chained certificate
-    CertSecurity.chain_certificates(config_contents['domainName'] + ".chained" + ".pem",
+    CertSecurity.chain_certificates(config_contents['domainName'] + ".chained.cert.pem",
                                     new_certificate['intermediate'], new_certificate['cert'])
 
     # TODO: Setup installation settings
