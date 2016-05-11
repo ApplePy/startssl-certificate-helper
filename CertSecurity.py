@@ -19,7 +19,7 @@ class CertSecurityGlobals:
     DEBUG_MODE = True
 
 
-# Write a file in each format
+# Write a file in each format (generator)
 def write_all_formats(base_file_name: str, include_text: bool = False):
     """Get all the file names for the different formats for writing to.
 
@@ -48,10 +48,10 @@ def write_all_formats(base_file_name: str, include_text: bool = False):
 
 
 # Generate private key
-def generate_key(key_file: str = "", key_type=crypto.TYPE_RSA, bits: int = 2048, password: str = None):
+def generate_key(key_file: str = None, key_type=crypto.TYPE_RSA, bits: int = 2048, password: str = None):
     """Generate a private key.
 
-    :param key_file: The path relative to SSL_DIR where the new key is saved. Use an empty string to disable saving.
+    :param key_file: The path relative to SSL_DIR where the new key is saved. Set to None to disable saving.
     :param key_type: Either crypto.TYPE_RSA or crypto.TYPE_DSA. Specifies the type of key to create.
     :param bits: The number of bits to be used in the key.
     :param password: Either a string or a function callback to get password. Set to None if no password.
@@ -63,7 +63,7 @@ def generate_key(key_file: str = "", key_type=crypto.TYPE_RSA, bits: int = 2048,
     key.generate_key(key_type, bits)
 
     # Only save key if specified
-    if key_file != "":
+    if key_file:
         key_file = os.path.join(CertSecurityGlobals.SSL_DIR, key_file)  # Create full path to the key file
 
         # Write each file type
@@ -75,12 +75,12 @@ def generate_key(key_file: str = "", key_type=crypto.TYPE_RSA, bits: int = 2048,
 
 
 # Generate CSR with key pair
-def generate_csr(key_pair: crypto.PKey, csr_data: dict, csr_file: str = ""):
+def generate_csr(key_pair: crypto.PKey, csr_data: dict, csr_file: str = None):
     """Generate a CSR with the specified key and data. Fill in missing data from user input.
 
     :param key_pair: The key pair used to sign the CSR.
     :param csr_data: The dict supplying the data for the CSR.
-    :param csr_file: The path relative to SSL_DIR where the CSR is saved. Pass "" to not save the CSR.
+    :param csr_file: The path relative to SSL_DIR where the CSR is saved. Pass None to not save the CSR.
     :return: Returns the completed CSR.
     """
 
@@ -147,7 +147,7 @@ def generate_csr(key_pair: crypto.PKey, csr_data: dict, csr_file: str = ""):
     req.sign(key_pair, "sha256WithRSAEncryption")
 
     # Save CSR if requested
-    if csr_file != "":
+    if csr_file:
         csr_file = os.path.join(CertSecurityGlobals.SSL_DIR, csr_file)
 
         # Write each file type
@@ -158,33 +158,34 @@ def generate_csr(key_pair: crypto.PKey, csr_data: dict, csr_file: str = ""):
 
 
 # Password retrieval function
-def get_password(*_):
-    """Get password from user."""
+def get_password(*_, prompt: str = "Please enter a password to encrypt the private key with: "):
+    """Get password from the user.
 
-    password = ""
+    :param _: captures all non-named arguments to throw out.
+    :param prompt: The text to be used in the input prompt.
+    :return: Returns the password entered.
+    """
 
     # Get password
     while True:
-        password = input("Please enter a password to encrypt the private key with: ")
+        password = input(prompt)
         verify = input("Please re-enter password: ")
         if password == verify:
-            break
+            return password.encode()
         else:
             print("Passwords do not match!")
-
-    return password.encode()
 
 
 # StartSSL
 def request_certificate(csr: crypto.X509Req, token_id: str, client_cert: crypto.PKCS12, domains: [str],
-                        cert_file: str = "", cert_type: str = "DVSSL"):
+                        cert_file: str = None, cert_type: str = "DVSSL"):
     """Request certificate from StartSSL.
 
         :param csr: The csr with which to request the certificate.
         :param token_id: The token id to present to StartSSL.
         :param client_cert: The client certificate to present to StartSSL.
         :param domains: The list of domains to add to the request.
-        :param cert_file: The file name relative to SSL_DIR to store the certificate if issued. Pass "" to disable.
+        :param cert_file: The file name relative to SSL_DIR to store the certificate if issued. Pass None to disable.
         :param cert_type: The type of certificate to request from StartSSL.
         :return: Returns a tuple containing the StartSSL request status and the certificate in PEM format if successful.
         """
@@ -268,13 +269,49 @@ def request_certificate(csr: crypto.X509Req, token_id: str, client_cert: crypto.
 
             # Get certificate
             cert_received = crypto.load_certificate(crypto.FILETYPE_PEM, base64.b64decode(response_json['data'][
-                'certificate'], validate=True))
+                                                                                              'certificate'],
+                                                                                          validate=True))
             inter_cert = crypto.load_certificate(crypto.FILETYPE_PEM, base64.b64decode(response_json['data'][
-                'intermediateCertificate'], validate=True))
+                                                                                           'intermediateCertificate'],
+                                                                                       validate=True))
 
             # Save certificate if requested
-            if cert_file != "":
+            if cert_file:
                 for file_format, f in write_all_formats(cert_file):
                     f.write(crypto.dump_certificate(file_format, cert_received))
 
             return response_json['data']['orderStatus'], cert_received, inter_cert
+
+
+# Put together PKCS12 package
+def create_pkcs12(private_key: crypto.X509, cert: crypto.X509, ca_certs: crypto.X509 = None, friendly_name: str = None,
+                  file_path: str = None, password: str = None):
+    """Generate a PKCS12 package.
+
+    :param private_key: The private key for the package
+    :param cert: The certificate for the package
+    :param ca_certs: The issuing certificates for the end certificate. Defaults to None.
+    :param friendly_name: The friendly name for the package. Defaults to None.
+    :param file_path: The path relative to SSL_DIR to save the package to. Must be supplied if password is supplied.
+    :param password: The password to use when saving the package. Defaults to None.
+    :return: Returns the PKCS12 package.
+    """
+
+    # Create package
+    package = crypto.PKCS12()
+    package.set_ca_certificates(ca_certs)
+    package.set_certificate(cert)
+    package.set_privatekey(private_key)
+    package.set_friendlyname(friendly_name)
+
+    # Sanity check
+    if password and not file_path:
+        raise CertSecurityError("File path was not passed when a password was.")
+
+    # Save file
+    if file_path:
+        full_file_path = os.path.join(CertSecurityGlobals.SSL_DIR, file_path)
+        with open(full_file_path, "wb") as f:
+            f.write(package.export(password))
+
+    return package
