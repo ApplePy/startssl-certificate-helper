@@ -255,11 +255,11 @@ def request_certificate(csr: crypto.X509Req, token_id: str, client_cert: crypto.
         if response_json['data']['orderStatus'] == 1:  # The request is pending
             print("The certificate has been successfully submitted and is pending issuance.\n"
                   "\t Order ID: " + response_json['orderID'])
-            return response_json['data']['orderStatus'], None
+            return {'status': response_json['data']['orderStatus']}
 
         elif response_json['data']['orderStatus'] == 3:  # The request was rejected
             print("The certificate request has been rejected.", file=sys.stderr)
-            return response_json['data']['orderStatus'], None
+            return {'status': response_json['data']['orderStatus']}
 
         elif response_json['data']['orderStatus'] != 2:  # Unspecified error
             raise CertSecurityError(response_json['data']['orderStatus'], "Received an invalid response!")
@@ -277,20 +277,21 @@ def request_certificate(csr: crypto.X509Req, token_id: str, client_cert: crypto.
 
             # Save certificate if requested
             if cert_file:
+                cert_file = os.path.join(CertSecurityGlobals.SSL_DIR, cert_file)
                 for file_format, f in write_all_formats(cert_file):
                     f.write(crypto.dump_certificate(file_format, cert_received))
 
-            return response_json['data']['orderStatus'], cert_received, inter_cert
+            return {'status': response_json['data']['orderStatus'], 'cert': cert_received, 'intermediate': inter_cert}
 
 
 # Put together PKCS12 package
-def create_pkcs12(private_key: crypto.X509, cert: crypto.X509, ca_certs: crypto.X509 = None, friendly_name: str = None,
+def create_pkcs12(private_key: crypto.X509, cert: crypto.X509, ca_certs: [crypto.X509] = None, friendly_name: str = None,
                   file_path: str = None, password: str = None):
     """Generate a PKCS12 package.
 
     :param private_key: The private key for the package
     :param cert: The certificate for the package
-    :param ca_certs: The issuing certificates for the end certificate. Defaults to None.
+    :param ca_certs: The a list of issuing certificates for the end certificate. Defaults to None.
     :param friendly_name: The friendly name for the package. Defaults to None.
     :param file_path: The path relative to SSL_DIR to save the package to. Must be supplied if password is supplied.
     :param password: The password to use when saving the package. Defaults to None.
@@ -298,11 +299,12 @@ def create_pkcs12(private_key: crypto.X509, cert: crypto.X509, ca_certs: crypto.
     """
 
     # Create package
+    # TODO: Input error check
     package = crypto.PKCS12()
     package.set_ca_certificates(ca_certs)
     package.set_certificate(cert)
     package.set_privatekey(private_key)
-    package.set_friendlyname(friendly_name)
+    package.set_friendlyname(friendly_name.encode())
 
     # Sanity check
     if password and not file_path:
@@ -315,3 +317,22 @@ def create_pkcs12(private_key: crypto.X509, cert: crypto.X509, ca_certs: crypto.
             f.write(package.export(password))
 
     return package
+
+
+# Chain certificates
+def chain_certificates(file_path: str = None, *certs: crypto.X509):
+    """Create a string of the certificates chained in PEM format.
+
+    :param file_path: The file relative to SSL_DIR to save the certificate chain. Pass None to disable saving.
+    :param certs: The certificates that are chained in the order that they are passed.
+    :return: Returns a string of the certificates chained in PEM format.
+    """
+
+    cert_string = "".join(map(lambda x: crypto.dump_certificate(crypto.FILETYPE_PEM, x).decode('utf-8'), certs))
+
+    if file_path:
+        file_path = os.path.join(CertSecurityGlobals.SSL_DIR, file_path)
+        with open(file_path, "wb") as f:
+            f.write(cert_string.encode())
+
+    return cert_string
