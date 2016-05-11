@@ -106,8 +106,9 @@ def main():
         CertSecurityGlobals.SSL_DIR = ssl_dir
         del ssl_dir
     except FileExistsError as err:
-            print("Error: " + ssl_dir + " already exists, exiting.", file=sys.stderr)
-            exit(err.errno)
+        # TODO: Get intelligent about reusing certificates already obtained
+        print("Error: " + ssl_dir + " already exists, exiting.", file=sys.stderr)
+        exit(err.errno)
 
     # Generate keys
     key_pair = CertSecurity.generate_key(key_file=config_contents['domainName'] + ".key",
@@ -143,28 +144,25 @@ def main():
 
     # Request certificate
     domains = [config_contents['domainName']] + config_contents.get('sans')
-    new_certificate = CertSecurity.request_certificate(csr, config_contents['tokenID'], client_cert, domains)
+    new_certificate = CertSecurity.request_certificate(csr, config_contents['tokenID'], client_cert, domains,
+                                                       config_contents['domainName'] + ".cert")
     del csr  # No longer needed
 
     # If certificate was not issued, return StartSSL status
-    if new_certificate[0] != 2:
-        return new_certificate[0]
+    if new_certificate['status'] != 2:
+        # TODO: Get intelligent about reusing certificates already obtained
+        return new_certificate['status']
 
-    # Write certificate to disk  TODO: Clean this block up
-    cert_path = os.path.join(CertSecurityGlobals.SSL_DIR, config_contents['domainName'] + ".cert")
-    for file_format, file in CertSecurity.write_all_formats(cert_path):  # DER and PEM formats
-            file.write(crypto.dump_certificate(file_format, new_certificate[1]))
-    with open(cert_path + ".p12", "wb") as file:  # PKCS12 format
-        # Set up container
-        package = crypto.PKCS12()
-        package.set_ca_certificates(new_certificate[2])
-        package.set_certificate(new_certificate[1])
-        package.set_privatekey(key_pair)
-        package.set_friendlyname(config_contents['domainName'])
+    # Write certificate to disk as PKCS12
+    CertSecurity.create_pkcs12(key_pair, new_certificate['cert'], [new_certificate['intermediate']],
+                               config_contents['domainName'],
+                               config_contents['domainName'] + ".p12",
+                               CertSecurity.get_password() if args.encryptKey else None)
 
-        file.write(package.export(CertSecurity.get_password() if args.encryptKey else None))
+    # Create chained certificate
+    CertSecurity.chain_certificates(config_contents['domainName'] + ".chained" + ".pem",
+                                    new_certificate['intermediate'], new_certificate['cert'])
 
-    # TODO: Create chained certs
     # TODO: Setup installation settings
 
 
