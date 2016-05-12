@@ -1,15 +1,19 @@
 {
-    "domainName":               "domain.com",
-    "sans": [
-        "sub1.domain.com",
-        "sub2.domain.com",
-    ],
-    "countryName":              "US",
-    "stateOrProvinceName":      "New York",
-    "localityName":             "New York",
-    "organizationName":         "",
-    "organizationalUnitName":   "",
-    "emailAddress":             "",
-    "tokenID":                  "token here",
-    "clientCert":               "base64-encoded PKCS12 object"
+    "domains": [
+        {
+            "domainName":               "domain.com",
+            "sans": [
+                "sub1.domain.com",
+                "sub2.domain.com",
+            ],
+            "countryName":              "US",
+            "stateOrProvinceName":      "New York",
+            "localityName":             "New York",
+            "organizationName":         "",
+            "organizationalUnitName":   "",
+            "emailAddress":             "",
+            "tokenID":                  "token here",
+            "clientCert":               "base64-encoded PKCS12 object"
+        }
+    ]
 }

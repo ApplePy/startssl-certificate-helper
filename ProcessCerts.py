@@ -66,10 +66,6 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Sets up generating SSL keys, CSRs, and "
                                                  "retrieving signed certificates from StartSSL for easy installation.",
                                      epilog="")
-    # parser.add_argument("--install", metavar="PATH",
-    #                    help="Install the chained certificate and key to the specified location.")
-    # parser.add_argument("--format", choices=['PEM', 'DER', 'TEXT'], default='PEM',
-    #                    help="Specify the format to use during installation ('PEM' is the default).")
     parser.add_argument("--config", metavar="PATH",
                         help="Specifies the path to the configuration file.")
     parser.add_argument("--encrypt-key", dest="encryptKey", action='store_true',
@@ -79,9 +75,6 @@ def parse_args():
 
 def main():
     """Main program."""
-
-    # TODO: Remove debug
-    CertSecurityGlobals.DEBUG_MODE = True
 
     # Version check
     version_check(3, 5)
@@ -101,77 +94,81 @@ def main():
         if not os.path.isfile(ProcessCertsGlobals.DEFAULT_CONFIG_FILE):
             exit('Default configuration file {0} does not exist.'.format(ProcessCertsGlobals.DEFAULT_CONFIG_FILE))
 
-    # TODO: Support multiple entries in domains.json
-
     # Open configuration file
     with open(args.config, "r") as file:
-        config_contents = json.load(file)
+        config_contents_all = json.load(file)
 
-    # Make directory to hold keys and csr
-    ssl_dir = os.path.join(ProcessCertsGlobals.CURRENT_DIR, config_contents['domainName'] + ".ssl")
-    try:
-        os.mkdir(ssl_dir)
-    except FileExistsError as err:
-        # TODO: Get intelligent about reusing certificates already obtained
-        print("Error: " + ssl_dir + " already exists, exiting.", file=sys.stderr)
-        exit(err.errno)
-    CertSecurityGlobals.SSL_DIR = ssl_dir
-    del ssl_dir
-
-    # Generate keys
-    key_pair = CertSecurity.generate_key(key_file=config_contents['domainName'] + ".key",
-                                         password=CertSecurity.get_password() if args.encryptKey else None)
-
-    # Set up CSR data
-    keys = ['domainName',
-            'sans',
-            'countryName',
-            'stateOrProvinceName',
-            'localityName',
-            'organizationName',
-            'organizationalUnitName',
-            'emailAddress'
-            ]
-    csr_dict = {}
-    for key in keys:
-        csr_dict[key] = config_contents.get(key) or None
-
-    # Generate CSR
-    csr = CertSecurity.generate_csr(key_pair=key_pair,
-                                    csr_data=csr_dict)
-    # Get API certificate
-    client_cert = None
-    while True:
+    # Process each domain entry
+    for config_contents in config_contents_all["domains"]:
+        # Catch all exceptions to prevent it from causing issues with other domains
         try:
-            client_cert = crypto.load_pkcs12(base64.b64decode(config_contents['clientCert']),
-                                             input("Input API certificate password (Press 'Enter' for no password): "))
-            break
-        except crypto.Error:
-            print("Bad API certificate password!", file=sys.stderr)
-            exit(-1)
+            # Make directory to hold keys and csr
+            ssl_dir = os.path.join(ProcessCertsGlobals.CURRENT_DIR, config_contents['domainName'] + ".ssl")
+            try:
+                os.mkdir(ssl_dir)
+            except FileExistsError as err:
+                print("Error: " + ssl_dir + " already exists.", file=sys.stderr)
+                raise err
+            CertSecurityGlobals.SSL_DIR = ssl_dir
+            del ssl_dir  # Prevent bad ideas: use the "Global" one!
 
-    # Request certificate
-    domains = [config_contents['domainName']] + config_contents.get('sans')
-    new_certificate = CertSecurity.request_certificate(csr, config_contents['tokenID'], client_cert, domains,
-                                                       config_contents['domainName'] + ".cert")
-    del csr  # No longer needed
+            # Generate keys
+            key_pair = CertSecurity.generate_key(key_file=config_contents['domainName'] + ".key",
+                                                 password=CertSecurity.get_password() if args.encryptKey else None)
 
-    # If certificate was not issued, return StartSSL status
-    if new_certificate['status'] != 2:
-        # TODO: Get intelligent about reusing certificates already obtained
-        return new_certificate['status']
+            # Set up CSR data
+            keys = ['domainName',
+                    'sans',
+                    'countryName',
+                    'stateOrProvinceName',
+                    'localityName',
+                    'organizationName',
+                    'organizationalUnitName',
+                    'emailAddress'
+                    ]
+            csr_dict = {}
+            for key in keys:
+                csr_dict[key] = config_contents.get(key) or None
 
-    # Write certificate to disk as PKCS12
-    CertSecurity.create_pkcs12(key_pair, new_certificate['cert'], [new_certificate['intermediate']],
-                               config_contents['domainName'],
-                               config_contents['domainName'] + ".p12",
-                               CertSecurity.get_password() if args.encryptKey else None)
+            # Generate CSR
+            csr = CertSecurity.generate_csr(key_pair=key_pair,
+                                            csr_data=csr_dict)
+            # Get API certificate
+            client_cert = None
+            while True:
+                try:
+                    client_cert = crypto.load_pkcs12(base64.b64decode(config_contents['clientCert']),
+                                                     input("[ {0} ]".format(config_contents["domainName"]) +
+                                                           " Input API certificate password (Press 'Enter' for none): "))
+                    break
+                except crypto.Error:
+                    print("Bad API certificate password!", file=sys.stderr)
+                    exit(-1)
 
-    # Create chained certificate
-    CertSecurity.chain_certificates(config_contents['domainName'] + ".chained.cert.pem",
-                                    new_certificate['intermediate'], new_certificate['cert'])
+            # Request certificate
+            domains = [config_contents['domainName']] + config_contents.get('sans')
+            new_certificate = CertSecurity.request_certificate(csr, config_contents['tokenID'], client_cert, domains,
+                                                               config_contents['domainName'] + ".cert")
 
-    # TODO: Setup installation settings
+            # If certificate was not issued, return StartSSL status
+            if new_certificate['status'] != 2:
+                return new_certificate['status']
+
+            # Write certificate to disk as PKCS12
+            CertSecurity.create_pkcs12(key_pair, new_certificate['cert'], [new_certificate['intermediate']],
+                                       config_contents['domainName'],
+                                       config_contents['domainName'] + ".p12",
+                                       CertSecurity.get_password() if args.encryptKey else None)
+
+            # Create chained certificate
+            CertSecurity.chain_certificates(config_contents['domainName'] + ".chained.cert.pem",
+                                            new_certificate['intermediate'], new_certificate['cert'])
+        except BaseException:
+            import traceback
+            ex_type, ex, tb = sys.exc_info()
+            traceback.print_tb(tb)
+            print(ex, file=sys.stderr)
+            del ex_type, ex, tb
 
 
 if __name__ == "__main__":

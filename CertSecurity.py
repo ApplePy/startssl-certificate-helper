@@ -227,6 +227,7 @@ def request_certificate(csr: crypto.X509Req, token_id: str, client_cert: crypto.
         os.write(temp_file[0], crypto.dump_certificate(crypto.FILETYPE_PEM, client_cert.get_certificate()) +
                  crypto.dump_privatekey(crypto.FILETYPE_PEM, client_cert.get_privatekey()))
 
+        print("Sending certificate request now...")
         # Request certificate
         r = requests.post(
             CertSecurityGlobals.DEBUG_API if CertSecurityGlobals.DEBUG_MODE else CertSecurityGlobals.PRODUCTION_API,
